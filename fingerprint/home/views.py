@@ -1,52 +1,64 @@
-from django.shortcuts import render
-
-# Create your views here.
 import cv2
+import numpy as np
 from django.shortcuts import render, redirect
-from .models import Fingerprint
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-import numpy as np
+from .models import Fingerprint
 import base64
-from io import BytesIO
-from PIL import Image
+from .forms import DocumentUploadForm
 
 def scan_fingerprint(request):
     if request.method == "POST":
         name = request.POST.get("name")
-        # Access the webcam
-        cap = cv2.VideoCapture(0)
+        capture_image = request.POST.get("capture_image")
 
-        if not cap.isOpened():
-            return render(request, 'home/scan_fingerprint.html', {'error': 'Unable to access the camera'})
+        # Save the captured image
+        if capture_image:
+            # Decode base64 image string from the hidden input field
+            image_data = capture_image.split(",")[1]
+            image_bytes = ContentFile(base64.b64decode(image_data))
 
-        # Capture one frame
-        ret, frame = cap.read()
-        cap.release()
+            # Optimize image size and save
+            file_name = f'fingerprint_{name}.jpg'
+            fingerprint_path = f'fingerprints/{file_name}'
 
-        if not ret:
-            return render(request, 'home/scan_fingerprint.html', {'error': 'Failed to capture image'})
+            # Convert the image bytes to a numpy array for resizing
+            nparr = np.frombuffer(image_bytes.read(), np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
 
-        # Convert the frame to grayscale
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Resize the image to reduce size (e.g., 50% of original size)
+            resized_img = cv2.resize(img, (0, 0), fx=0.5, fy=0.5)
 
-        # Save the fingerprint as an image file
-        success, encoded_image = cv2.imencode('.jpg', gray_frame)
-        if not success:
-            return render(request, 'home/scan_fingerprint.html', {'error': 'Failed to encode image'})
+            # Re-encode the resized image with lower quality
+            success, encoded_img = cv2.imencode('.jpg', resized_img, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
 
-        fingerprint_data = encoded_image.tobytes()
-        file_name = f'fingerprint_{name}.jpg'
+            if success:
+                # Save the optimized image
+                default_storage.save(fingerprint_path, ContentFile(encoded_img.tobytes()))
 
-        # Save the file to the Django storage
-        path = default_storage.save(f'fingerprints/{file_name}', ContentFile(fingerprint_data))
+                # Save record in the database
+                Fingerprint.objects.create(name=name, fingerprint_image=fingerprint_path)
 
-        # Save to the database
-        Fingerprint.objects.create(name=name, fingerprint_image=path)
+                return redirect('fingerprint_success')
 
-        return redirect('fingerprint_success')
+        return render(request, 'home/scan_fingerprint.html', {'error': 'Failed to save the image'})
 
     return render(request, 'home/scan_fingerprint.html')
 
+
+
 def fingerprint_success(request):
     return render(request, 'home/fingerprint_success.html')
+
+def upload_document(request):
+    if request.method == 'POST':
+        form = DocumentUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            form.save()
+            return redirect('document_success')
+    else:
+        form = DocumentUploadForm()
+    return render(request, 'home/upload_document.html', {'form': form})
+
+def document_success(request):
+    return render(request, 'home/document_success.html')

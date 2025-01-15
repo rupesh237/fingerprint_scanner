@@ -4,8 +4,44 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scan Fingerprint</title>
+    <script>
+        let videoStream = null;
+
+        // Start webcam feed
+        async function startCamera() {
+            const video = document.getElementById("video");
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = videoStream;
+        }
+
+        // Capture the image
+        function captureImage() {
+            const video = document.getElementById("video");
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
+
+            // Set canvas dimensions to video dimensions
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Draw the current video frame onto the canvas
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Get the image as a base64 string
+            const imageData = canvas.toDataURL("image/jpeg", 0.7); // Adjust quality to 0.7 for lower size
+            document.getElementById("capture_image").value = imageData;
+        }
+
+        // Stop the webcam feed when the user leaves the page
+        function stopCamera() {
+            if (videoStream) {
+                const tracks = videoStream.getTracks();
+                tracks.forEach((track) => track.stop());
+            }
+        }
+    </script>
 </head>
-<body>
+<body onload="startCamera()" onunload="stopCamera()">
     <h1>Scan Fingerprint</h1>
     {% if error %}
         <p style="color: red;">{{ error }}</p>
@@ -14,7 +50,13 @@
         {% csrf_token %}
         <label for="name">Enter Name:</label>
         <input type="text" name="name" id="name" required>
-        <button type="submit">Capture Fingerprint</button>
+        <br><br>
+        <video id="video" autoplay></video>
+        <br><br>
+        <button type="button" onclick="captureImage()">Capture</button>
+        <input type="hidden" name="capture_image" id="capture_image">
+        <br><br>
+        <button type="submit">Save Fingerprint</button>
     </form>
 </body>
 </html>
